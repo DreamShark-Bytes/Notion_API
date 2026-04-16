@@ -111,6 +111,13 @@ class NotionClient:
         """Patch one or more properties on a page."""
         return self._patch(f"/pages/{page_id}", {"properties": properties})
 
+    def create_page(self, database_id: str, properties: dict) -> dict:
+        """Create a new page in a database."""
+        return self._post("/pages", {
+            "parent": {"database_id": database_id},
+            "properties": properties,
+        })
+
     # ------------------------------------------------------------------ #
     #  Blocks (page content)
     # ------------------------------------------------------------------ #

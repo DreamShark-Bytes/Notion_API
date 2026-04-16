@@ -48,6 +48,10 @@ client.update_page_properties("page_id", {
     "Status": {"status": {"name": "Done"}},
     "Due Date": NotionClient.date_property("2026-04-08"),
 })
+client.create_page("db_id", {             # create a new page in a database
+    "Name": {"title": [{"type": "text", "text": {"content": "New Task"}}]},
+    "Status": {"status": {"name": "Not started"}},
+})
 
 # Blocks and comments
 text     = extract_content(client, "page_id")    # → plain text string
