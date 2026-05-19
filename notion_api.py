@@ -52,7 +52,7 @@ class NotionClient:
 
     def _get(self, path: str) -> dict:
         self._log("GET", path)
-        r = requests.get(f"{BASE_URL}{path}", headers=self.headers)
+        r = requests.get(f"{BASE_URL}{path}", headers=self.headers, timeout=30)
         r.raise_for_status()
         data = r.json()
         self._log("GET", path, response=data)
@@ -60,7 +60,7 @@ class NotionClient:
 
     def _post(self, path: str, payload: dict) -> dict:
         self._log("POST", path, payload=payload)
-        r = requests.post(f"{BASE_URL}{path}", json=payload, headers=self.headers)
+        r = requests.post(f"{BASE_URL}{path}", json=payload, headers=self.headers, timeout=30)
         r.raise_for_status()
         data = r.json()
         self._log("POST", path, response=data)
@@ -68,7 +68,7 @@ class NotionClient:
 
     def _patch(self, path: str, payload: dict) -> dict:
         self._log("PATCH", path, payload=payload)
-        r = requests.patch(f"{BASE_URL}{path}", json=payload, headers=self.headers)
+        r = requests.patch(f"{BASE_URL}{path}", json=payload, headers=self.headers, timeout=30)
         r.raise_for_status()
         data = r.json()
         self._log("PATCH", path, response=data)
