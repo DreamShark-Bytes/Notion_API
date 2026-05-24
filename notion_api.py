@@ -63,6 +63,8 @@ class NotionClient:
     def _post(self, path: str, payload: dict) -> dict:
         self._log("POST", path, payload=payload)
         r = requests.post(f"{BASE_URL}{path}", json=payload, headers=self.headers, timeout=30)
+        if not r.ok:
+            logger.debug(f"[API] POST {path} {r.status_code} error body: {r.text}")
         r.raise_for_status()
         data = r.json()
         self._log("POST", path, response=data)
@@ -119,6 +121,10 @@ class NotionClient:
             "parent": {"database_id": database_id},
             "properties": properties,
         })
+
+    def archive_page(self, page_id: str) -> dict:
+        """Archive (delete) a page — removes it from database query results."""
+        return self._patch(f"/pages/{page_id}", {"archived": True})
 
     # ------------------------------------------------------------------ #
     #  Blocks (page content)
