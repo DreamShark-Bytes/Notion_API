@@ -1,6 +1,6 @@
 # notion_api
 
-A shared Python module providing a Notion REST API client and data extraction utilities. Used by Notion_Automator, Notion_PowerBI, and Notion_Resume.
+A shared Python module providing a Notion REST API client and data extraction utilities. Used by Notion_Automator and Notion_Analytics.
 
 ## What's in it
 

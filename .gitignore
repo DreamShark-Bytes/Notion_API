@@ -1,18 +1,7 @@
-# Secrets
-config.toml
-.env
-
-# Claude Code
-.claude/
-
-# Python
 __pycache__/
-*.pyc
-*.pyo
-venv/
-.venv/
-
-# Build artifacts
+*.egg-info/
 build/
 dist/
-*.egg-info/
+*.pyc
+STATUS.md
+scratch.md

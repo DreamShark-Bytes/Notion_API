@@ -9,7 +9,7 @@ Exports:
   extract_comments   — page comments → list of dicts
 """
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 import os
 import logging
@@ -191,10 +191,7 @@ class NotionClient:
 # ================================================================== #
 
 # Block types that carry no readable text (skipped in extract_content)
-_SKIP_BLOCK_TYPES = {
-    "image", "file", "pdf", "video", "audio",
-    "embed", "bookmark", "link_preview", "unsupported",
-}
+_SKIP_BLOCK_TYPES: set = set()  # all block types are handled explicitly or via children
 
 
 def _plain_text(rich_text_list: list) -> str:
@@ -326,7 +323,9 @@ def normalize_property(
 def extract_content(client: NotionClient, page_id: str) -> str:
     """
     Fetch all blocks for a page and return them as plain text.
-    Images, files, embeds, and bookmarks are skipped.
+    Media blocks (image, video, audio, pdf, file) render as [type: caption/name].
+    Link blocks (bookmark, embed, link_preview) render as [type: url].
+    Tables render as pipe-separated rows.
     Child pages/databases are noted by title only (not recursed into).
     """
     try:
@@ -379,6 +378,22 @@ def _blocks_to_text(client: NotionClient, blocks: list, lines: list, depth: int)
             lines.append(f"{indent}[code:{lang}] {text}")
         elif btype == "divider":
             lines.append(f"{indent}---")
+        elif btype == "table_row":
+            cells = content.get("cells", [])
+            row_text = " | ".join(_plain_text(cell) for cell in cells)
+            if row_text.strip():
+                lines.append(f"{indent}{row_text}")
+        elif btype in ("image", "video", "audio", "pdf"):
+            caption = _plain_text(content.get("caption", []))
+            lines.append(f"{indent}[{btype}]" + (f": {caption}" if caption else ""))
+        elif btype == "file":
+            label = content.get("name", "") or _plain_text(content.get("caption", []))
+            lines.append(f"{indent}[file]" + (f": {label}" if label else ""))
+        elif btype in ("bookmark", "embed", "link_preview"):
+            url = content.get("url", "")
+            lines.append(f"{indent}[{btype}]" + (f": {url}" if url else ""))
+        elif btype == "unsupported":
+            lines.append(f"{indent}[unsupported]")
         elif btype in ("child_page", "child_database"):
             title = content.get("title", "")
             if title:
