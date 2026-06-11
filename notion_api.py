@@ -9,7 +9,7 @@ Exports:
   extract_comments   — page comments → list of dicts
 """
 
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 import os
 import logging
@@ -115,12 +115,15 @@ class NotionClient:
         """Patch one or more properties on a page."""
         return self._patch(f"/pages/{page_id}", {"properties": properties})
 
-    def create_page(self, database_id: str, properties: dict) -> dict:
+    def create_page(self, database_id: str, properties: dict, icon: dict | None = None) -> dict:
         """Create a new page in a database."""
-        return self._post("/pages", {
+        body: dict = {
             "parent": {"database_id": database_id},
             "properties": properties,
-        })
+        }
+        if icon is not None:
+            body["icon"] = icon
+        return self._post("/pages", body)
 
     def archive_page(self, page_id: str) -> dict:
         """Archive (delete) a page — removes it from database query results."""
