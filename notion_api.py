@@ -9,13 +9,15 @@ Exports:
   extract_comments   — page comments → list of dicts
 """
 
-__version__ = "1.1.3"
+__version__ = "1.1.4"
 
 import os
 import logging
 from typing import Optional
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,13 @@ class NotionClient:
             "Content-Type": "application/json",
             "Notion-Version": NOTION_VERSION,
         }
+        self._session = requests.Session()
+        self._session.headers.update(self.headers)
+        # Connection: close prevents stale keep-alive connections from being reused,
+        # which causes SSL EOF errors when the server has already closed the socket.
+        self._session.headers["Connection"] = "close"
+        _retry = Retry(total=3, connect=3, backoff_factor=0.5)
+        self._session.mount("https://", HTTPAdapter(max_retries=_retry))
 
     # ------------------------------------------------------------------ #
     #  Internal HTTP methods
@@ -54,7 +63,7 @@ class NotionClient:
 
     def _get(self, path: str) -> dict:
         self._log("GET", path)
-        r = requests.get(f"{BASE_URL}{path}", headers=self.headers, timeout=30)
+        r = self._session.get(f"{BASE_URL}{path}", timeout=30)
         r.raise_for_status()
         data = r.json()
         self._log("GET", path, response=data)
@@ -62,7 +71,7 @@ class NotionClient:
 
     def _post(self, path: str, payload: dict) -> dict:
         self._log("POST", path, payload=payload)
-        r = requests.post(f"{BASE_URL}{path}", json=payload, headers=self.headers, timeout=30)
+        r = self._session.post(f"{BASE_URL}{path}", json=payload, timeout=30)
         if not r.ok:
             logger.debug(f"[API] POST {path} {r.status_code} error body: {r.text}")
         r.raise_for_status()
@@ -72,7 +81,7 @@ class NotionClient:
 
     def _patch(self, path: str, payload: dict) -> dict:
         self._log("PATCH", path, payload=payload)
-        r = requests.patch(f"{BASE_URL}{path}", json=payload, headers=self.headers, timeout=30)
+        r = self._session.patch(f"{BASE_URL}{path}", json=payload, timeout=30)
         r.raise_for_status()
         data = r.json()
         self._log("PATCH", path, response=data)
