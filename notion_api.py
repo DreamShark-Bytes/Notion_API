@@ -9,7 +9,7 @@ Exports:
   extract_comments   — page comments → list of dicts
 """
 
-__version__ = "1.2.2"
+__version__ = "1.3.0"
 
 import os
 import logging
@@ -112,16 +112,40 @@ class NotionClient:
 
         return results
 
-    def patch_database(self, database_id: str, properties: dict) -> dict:
-        """Update a database schema — e.g. set property descriptions after creation."""
-        return self._patch(f"/databases/{database_id}", {"properties": properties})
+    def patch_database(
+        self,
+        database_id: str,
+        properties: dict | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        icon: dict | None = None,
+        is_inline: bool | None = None,
+    ) -> dict:
+        """Update a database — schema, title, description, icon, or inline mode."""
+        body: dict = {}
+        if properties is not None:
+            body["properties"] = properties
+        if title is not None:
+            body["title"] = [{"type": "text", "text": {"content": title}}]
+        if description is not None:
+            body["description"] = [{"type": "text", "text": {"content": description}}]
+        if icon is not None:
+            body["icon"] = icon
+        if is_inline is not None:
+            body["is_inline"] = is_inline
+        return self._patch(f"/databases/{database_id}", body)
 
-    def create_database(self, parent_page_id: str, title: str, properties: dict, description: str | None = None, icon: dict | None = None) -> dict:
-        """Create a new database as a child of a Notion page."""
+    def create_database(self, parent_page_id: str, title: str, properties: dict, description: str | None = None, is_inline: bool = False, icon: dict | None = None) -> dict:
+        """Create a new database as a child of a Notion page.
+
+        is_inline=True renders the database table directly on the parent page
+        rather than requiring the user to open it as a separate page.
+        """
         body: dict = {
             "parent": {"type": "page_id", "page_id": parent_page_id},
             "title": [{"type": "text", "text": {"content": title}}],
             "properties": properties,
+            "is_inline": is_inline,
         }
         if description is not None:
             body["description"] = [{"type": "text", "text": {"content": description}}]
@@ -137,9 +161,12 @@ class NotionClient:
         """Return a single page object."""
         return self._get(f"/pages/{page_id}")
 
-    def update_page_properties(self, page_id: str, properties: dict) -> dict:
-        """Patch one or more properties on a page."""
-        return self._patch(f"/pages/{page_id}", {"properties": properties})
+    def update_page_properties(self, page_id: str, properties: dict, icon: dict | None = None) -> dict:
+        """Patch one or more properties on a page. Optionally update the page icon."""
+        body: dict = {"properties": properties}
+        if icon is not None:
+            body["icon"] = icon
+        return self._patch(f"/pages/{page_id}", body)
 
     def create_page(self, database_id: str, properties: dict, icon: dict | None = None, template: dict | None = None) -> dict:
         """Create a new page in a database."""
@@ -160,6 +187,10 @@ class NotionClient:
     # ------------------------------------------------------------------ #
     #  Blocks (page content)
     # ------------------------------------------------------------------ #
+
+    def append_blocks(self, block_id: str, children: list) -> dict:
+        """Append child blocks to a page or block. Max 100 children per call."""
+        return self._patch(f"/blocks/{block_id}/children", {"children": children})
 
     def get_blocks(self, block_id: str) -> list[dict]:
         """Return all child blocks for a page or block, handling pagination."""
