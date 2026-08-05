@@ -9,7 +9,7 @@ Exports:
   extract_comments   — page comments → list of dicts
 """
 
-__version__ = "1.1.4"
+__version__ = "1.2.0"
 
 import os
 import logging
@@ -111,6 +111,17 @@ class NotionClient:
             payload["start_cursor"] = data["next_cursor"]
 
         return results
+
+    def create_database(self, parent_page_id: str, title: str, properties: dict, icon: dict | None = None) -> dict:
+        """Create a new database as a child of a Notion page."""
+        body: dict = {
+            "parent": {"type": "page_id", "page_id": parent_page_id},
+            "title": [{"type": "text", "text": {"content": title}}],
+            "properties": properties,
+        }
+        if icon is not None:
+            body["icon"] = icon
+        return self._post("/databases", body)
 
     # ------------------------------------------------------------------ #
     #  Pages
