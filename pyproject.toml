@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "notion-api"
-version = "1.2.0"
+version = "1.2.2"
 description = "Shared Notion API client and data extraction utilities"
 requires-python = ">=3.11"
 dependencies = ["requests>=2.31"]
