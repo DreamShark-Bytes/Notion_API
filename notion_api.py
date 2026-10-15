@@ -9,7 +9,7 @@ Exports:
   extract_comments   — page comments → list of dicts
 """
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 import os
 import logging
@@ -21,7 +21,9 @@ from urllib3.util.retry import Retry
 
 logger = logging.getLogger(__name__)
 
-NOTION_VERSION = "2022-06-28"
+NOTION_VERSION = "2022-06-28"          # default; unchanged so existing consumers behave exactly as before
+DATA_SOURCE_VERSION = "2025-09-03"     # first version with data sources (database query endpoint removed)
+TRASH_VERSION = "2026-03-11"           # first version where `archived` is replaced by `in_trash`
 BASE_URL = "https://api.notion.com/v1"
 
 
@@ -30,13 +32,22 @@ BASE_URL = "https://api.notion.com/v1"
 # ================================================================== #
 
 class NotionClient:
-    def __init__(self, token: Optional[str] = None, debug: bool = False):
+    """Notion REST client.
+
+    notion_version selects the API behavior. The default (2022-06-28) keeps the database-ID endpoints.
+    With 2025-09-03 or later, database-style methods (query_database, create_page, get_schema, ...) accept
+    either a database ID or a data source ID and resolve it to a data source for you (cached per client).
+    """
+
+    def __init__(self, token: Optional[str] = None, debug: bool = False, notion_version: str = NOTION_VERSION):
         self.token = token or os.environ["NOTION_TOKEN"]
         self.debug = debug
+        self.notion_version = notion_version
+        self._data_source_ids: dict[str, str] = {}
         self.headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
-            "Notion-Version": NOTION_VERSION,
+            "Notion-Version": notion_version,
         }
         self._session = requests.Session()
         self._session.headers.update(self.headers)
@@ -88,20 +99,61 @@ class NotionClient:
         return data
 
     # ------------------------------------------------------------------ #
-    #  Database
+    #  Version helpers
     # ------------------------------------------------------------------ #
 
-    def get_database(self, database_id: str) -> dict:
-        """Return the database schema (property definitions, status groups, etc.)."""
-        return self._get(f"/databases/{database_id}")
+    @property
+    def uses_data_sources(self) -> bool:
+        """True when notion_version is 2025-09-03 or later (ISO dates compare correctly as strings)."""
+        return self.notion_version >= DATA_SOURCE_VERSION
 
-    def query_database(self, database_id: str, filter_payload: Optional[dict] = None) -> list[dict]:
-        """Return all pages from a database, handling pagination automatically."""
-        path = f"/databases/{database_id}/query"
+    def _require_data_sources(self, what: str):
+        if not self.uses_data_sources:
+            raise ValueError(f"{what} requires notion_version >= {DATA_SOURCE_VERSION} (client is on {self.notion_version})")
+
+    # ------------------------------------------------------------------ #
+    #  Data sources (notion_version >= 2025-09-03)
+    # ------------------------------------------------------------------ #
+
+    def get_data_source(self, data_source_id: str) -> dict:
+        """Return a data source (its schema lives in ["properties"])."""
+        self._require_data_sources("get_data_source")
+        return self._get(f"/data_sources/{data_source_id}")
+
+    def resolve_data_source_id(self, any_id: str) -> str:
+        """Return a data source ID given either a data source ID or a database ID.
+
+        Notion IDs do not reveal their type, so this tries the ID as a data source first, then as a database.
+        A database with several data sources is ambiguous: pass the data source ID instead.
+        """
+        self._require_data_sources("resolve_data_source_id")
+        if any_id in self._data_source_ids:
+            return self._data_source_ids[any_id]
+        try:
+            self._get(f"/data_sources/{any_id}")
+            resolved = any_id
+        except requests.HTTPError as e:
+            if e.response is None or e.response.status_code not in (400, 404):
+                raise
+            sources = self._get(f"/databases/{any_id}").get("data_sources", [])
+            if len(sources) != 1:
+                names = ", ".join(f"{src.get('name')} ({src.get('id')})" for src in sources) or "none"
+                raise ValueError(f"Database {any_id} has {len(sources)} data sources ({names}); pass a data source ID")
+            resolved = sources[0]["id"]
+        self._data_source_ids[any_id] = resolved
+        return resolved
+
+    def query_data_source(self, data_source_id: str, filter_payload: Optional[dict] = None, sorts: Optional[list] = None) -> list[dict]:
+        """Return all pages from a data source, handling pagination automatically."""
+        self._require_data_sources("query_data_source")
         payload: dict = {"page_size": 100}
         if filter_payload:
             payload["filter"] = filter_payload
+        if sorts:
+            payload["sorts"] = sorts
+        return self._paginate_query(f"/data_sources/{data_source_id}/query", payload)
 
+    def _paginate_query(self, path: str, payload: dict) -> list[dict]:
         results = []
         while True:
             data = self._post(path, payload)
@@ -109,8 +161,37 @@ class NotionClient:
             if not data.get("has_more"):
                 break
             payload["start_cursor"] = data["next_cursor"]
-
         return results
+
+    # ------------------------------------------------------------------ #
+    #  Database
+    # ------------------------------------------------------------------ #
+
+    def get_database(self, database_id: str) -> dict:
+        """Return the database object. On notion_version >= 2025-09-03 this lists its data_sources but
+        carries no property schema; use get_schema() for that."""
+        return self._get(f"/databases/{database_id}")
+
+    def get_schema(self, any_id: str) -> dict:
+        """Return an object with ["properties"] (property definitions, status groups, etc.) on any version.
+
+        On data-source versions any_id may be a database ID or a data source ID.
+        """
+        if self.uses_data_sources:
+            return self.get_data_source(self.resolve_data_source_id(any_id))
+        return self.get_database(any_id)
+
+    def query_database(self, database_id: str, filter_payload: Optional[dict] = None) -> list[dict]:
+        """Return all pages from a database, handling pagination automatically.
+
+        On notion_version >= 2025-09-03, database_id may be a database ID (single data source) or a data source ID.
+        """
+        if self.uses_data_sources:
+            return self.query_data_source(self.resolve_data_source_id(database_id), filter_payload)
+        payload: dict = {"page_size": 100}
+        if filter_payload:
+            payload["filter"] = filter_payload
+        return self._paginate_query(f"/databases/{database_id}/query", payload)
 
     def patch_database(
         self,
@@ -121,7 +202,16 @@ class NotionClient:
         icon: dict | None = None,
         is_inline: bool | None = None,
     ) -> dict:
-        """Update a database — schema, title, description, icon, or inline mode."""
+        """Update a database — schema, title, description, icon, or inline mode.
+
+        On notion_version >= 2025-09-03 `properties` (schema) is sent to the data source and the rest to the
+        database; database_id may be a database ID or a data source ID. (Verified live 2026-10-15 on 2025-09-03 and 2026-03-11.)
+        """
+        if self.uses_data_sources and properties is not None:
+            self._patch(f"/data_sources/{self.resolve_data_source_id(database_id)}", {"properties": properties})
+            properties = None
+            if title is None and description is None and icon is None and is_inline is None:
+                return self.get_schema(database_id)
         body: dict = {}
         if properties is not None:
             body["properties"] = properties
@@ -144,9 +234,13 @@ class NotionClient:
         body: dict = {
             "parent": {"type": "page_id", "page_id": parent_page_id},
             "title": [{"type": "text", "text": {"content": title}}],
-            "properties": properties,
             "is_inline": is_inline,
         }
+        # 2025-09-03+: initial schema goes under initial_data_source (verified live 2026-10-15)
+        if self.uses_data_sources:
+            body["initial_data_source"] = {"properties": properties}
+        else:
+            body["properties"] = properties
         if description is not None:
             body["description"] = [{"type": "text", "text": {"content": description}}]
         if icon is not None:
@@ -169,9 +263,17 @@ class NotionClient:
         return self._patch(f"/pages/{page_id}", body)
 
     def create_page(self, database_id: str, properties: dict, icon: dict | None = None, template: dict | None = None) -> dict:
-        """Create a new page in a database."""
+        """Create a new page in a database.
+
+        On notion_version >= 2025-09-03 database_id may be a database ID or a data source ID; the page is created
+        under the data source.
+        """
+        if self.uses_data_sources:
+            parent = {"type": "data_source_id", "data_source_id": self.resolve_data_source_id(database_id)}
+        else:
+            parent = {"database_id": database_id}
         body: dict = {
-            "parent": {"database_id": database_id},
+            "parent": parent,
             "properties": properties,
         }
         if icon is not None:
@@ -182,7 +284,8 @@ class NotionClient:
 
     def archive_page(self, page_id: str) -> dict:
         """Archive (delete) a page — removes it from database query results."""
-        return self._patch(f"/pages/{page_id}", {"archived": True})
+        key = "in_trash" if self.notion_version >= TRASH_VERSION else "archived"
+        return self._patch(f"/pages/{page_id}", {key: True})
 
     # ------------------------------------------------------------------ #
     #  Blocks (page content)
