@@ -46,6 +46,16 @@ Child pages and databases are not recursed into because they are separate Notion
 
 ---
 
+### API version is per client; default stays legacy
+
+- `NotionClient(notion_version=...)`; default `2022-06-28` so Notion_Automator and Notion_Analytics are unaffected until they opt in.
+- `>= 2025-09-03` is "data-source mode": database-style methods (`query_database`, `create_page`, `get_schema`, `patch_database`) accept a database ID or a data source ID and resolve it. Notion IDs carry no type, so resolution tries `GET /data_sources/{id}` then `GET /databases/{id}` (400/404 only), caches the result per client, and refuses ambiguous multi-source databases rather than guessing.
+- One code path per concern, branching on the version rather than separate client classes: the differences are a handful of endpoints and payload keys, and callers keep a single class and method names.
+- `archived` vs `in_trash` is keyed off `2026-03-11`.
+- Deprecation: Notion publishes no sunset date for `2022-06-28`; its upgrade FAQ says there is no process for retiring old versions, that any future minimum-version program would give ample notice (e.g. 6 months) and start with versions older than `2022-06-28`. Risk that is real today: once a database gains a second data source, legacy database-ID calls on it fail. Checked 2026-10-14.
+
+---
+
 ### `timeout=30` on all requests
 
 A flat 30-second timeout covers both connect and read. Known limitation: for POST/PATCH requests, if Notion processes the write but the response is lost, the caller gets a timeout exception and may retry — resulting in a duplicate write. Notion's API is not idempotent for creates.

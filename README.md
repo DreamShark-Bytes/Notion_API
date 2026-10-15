@@ -36,6 +36,7 @@ from notion_api import NotionClient, normalize_property, extract_content, extrac
 # Connect
 client = NotionClient("secret_...")          # or omit token to use NOTION_TOKEN env var
 client = NotionClient(debug=True)            # logs all API requests/responses
+client = NotionClient(notion_version="2026-03-11")   # opt in to a newer API version (see "API versions")
 
 # Databases
 schema = client.get_database("db_id")
@@ -64,6 +65,26 @@ value = normalize_property("files",  prop_value)                          # → 
 value = normalize_property("files",  prop_value, files_handling="raw")    # → list of file objects
 value = normalize_property("files",  prop_value, files_handling="skip")   # → None (ignore field)
 ```
+
+## API versions (data sources)
+
+`NotionClient` defaults to `Notion-Version: 2022-06-28`, so existing code behaves exactly as before. Pass `notion_version="2025-09-03"` (or later, e.g. `"2026-03-11"`) to use data sources:
+
+```python
+client = NotionClient(notion_version="2026-03-11")
+pages  = client.query_database(any_id)        # database ID or data source ID; resolved and cached
+schema = client.get_schema(any_id)            # ["properties"] on every version
+ds_id  = client.resolve_data_source_id(db_id) # explicit lookup; raises ValueError if the database has several sources
+client.query_data_source(ds_id, filter_payload={...}, sorts=[...])   # data-source versions only
+client.create_page(any_id, {...})             # parent becomes {"type": "data_source_id", ...}
+client.archive_page(page_id)                  # sends in_trash on 2026-03-11+, archived before
+```
+
+Notes:
+- Notion IDs do not reveal their type, so `resolve_data_source_id` first tries the ID as a data source, then as a database (one extra call per ID, then cached).
+- A database with more than one data source needs the data source ID; the old database endpoints stop working for it on every API version.
+- `get_data_source`, `query_data_source` and `resolve_data_source_id` raise `ValueError` on legacy versions.
+- `create_database` / `patch_database` send the new payload shapes (`initial_data_source`, schema via `/data_sources`) on data-source versions; verified live (2026-10-15) against a sandbox page with `tests/live_test.py` (opt-in: set `NOTION_TOKEN` and `NOTION_LIVE_PARENT`).
 
 ## Property builder helpers
 
